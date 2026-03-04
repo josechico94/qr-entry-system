@@ -201,7 +201,7 @@ api.get("/tickets.pdf", async (req, res) => {
       doc.fontSize(10).fillColor("#444444").text("Biglietto di ingresso • QR monouso", { align: "right" });
       doc.moveDown(1);
 
-      doc.roundRect(doc.page.margins.left, 90, doc.page.width - doc.page.margins.left - doc.page.margins.right, 52, 10).fill("#F4F6F8");
+      doc.rect(boxX, boxY, boxW, boxH).fill("#F4F6F8");
       doc.fillColor("#111111").fontSize(13).text(`${a.firstName} ${a.lastName}`, doc.page.margins.left + 14, 104);
       doc.fillColor("#444444").fontSize(9).text(`Documento: ${a.document || "-"}`, doc.page.margins.left + 14, 126);
 
