@@ -5,6 +5,8 @@ import cors from "cors";
 import morgan from "morgan";
 import dotenv from "dotenv";
 import http from "http";
+import { buildTicketPdf } from "./pdf.js";
+import { getAll } from "./store.js";
 import { Server as SocketIOServer } from "socket.io";
 import { fileURLToPath } from "url";
 
@@ -145,6 +147,90 @@ api.get("/export.xlsx", (req, res) => {
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", "attachment; filename=attendees.xlsx");
   res.send(buf);
+});
+
+// Ticket PDF individual
+api.get("/ticket/:id.pdf", async (req, res) => {
+  try {
+    const attendee = getAll().find(a => a.id === req.params.id);
+    if (!attendee) return res.status(404).json({ error: "Attendee not found" });
+
+    const buf = await buildTicketPdf(attendee);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename=ticket-${attendee.firstName}-${attendee.lastName}.pdf`);
+    res.send(buf);
+  } catch (e) {
+    res.status(500).json({ error: e.message || "PDF failed" });
+  }
+});
+
+// PDF masivo (todos)
+api.get("/tickets.pdf", async (req, res) => {
+  try {
+    const attendees = getAll();
+    // Armamos un PDF con una página A6 por asistente
+    // Reutilizamos buildTicketPdf por cada uno y concatenamos como páginas con PDFKit directo (simple y robusto)
+    // Para mantenerlo simple: generamos uno por uno y los zippeamos sería ideal,
+    // pero por ahora: devolvemos el primero si hay 1, y si hay >1 devolvemos un PDF multi-page.
+    // -> implementación multi-page:
+    const PDFDocument = (await import("pdfkit")).default;
+    const fs = await import("fs");
+    const path = await import("path");
+    const { fileURLToPath } = await import("url");
+
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const logoPath = path.join(__dirname, "../assets/logo.png");
+    const hasLogo = fs.existsSync(logoPath);
+
+    const doc = new PDFDocument({ autoFirstPage: false });
+    const chunks = [];
+    doc.on("data", c => chunks.push(c));
+    const done = new Promise(resolve => doc.on("end", () => resolve(Buffer.concat(chunks))));
+
+    function dataUrlToBuffer(dataUrl) {
+      const m = String(dataUrl || "").match(/^data:.*?;base64,(.*)$/);
+      if (!m) return null;
+      return Buffer.from(m[1], "base64");
+    }
+
+    for (const a of attendees) {
+      doc.addPage({ size: "A6", margin: 24 });
+
+      if (hasLogo) doc.image(logoPath, doc.page.margins.left, 18, { width: 120 });
+      doc.fontSize(14).text("BOLOGNA RUGBY CLUB", 0, 22, { align: "right" });
+      doc.fontSize(10).fillColor("#444444").text("Biglietto di ingresso • QR monouso", { align: "right" });
+      doc.moveDown(1);
+
+      doc.roundRect(doc.page.margins.left, 90, doc.page.width - doc.page.margins.left - doc.page.margins.right, 52, 10).fill("#F4F6F8");
+      doc.fillColor("#111111").fontSize(13).text(`${a.firstName} ${a.lastName}`, doc.page.margins.left + 14, 104);
+      doc.fillColor("#444444").fontSize(9).text(`Documento: ${a.document || "-"}`, doc.page.margins.left + 14, 126);
+
+      const qrBuf = dataUrlToBuffer(a.qrDataUrl);
+      if (qrBuf) {
+        const qrSize = 160;
+        doc.image(qrBuf, (doc.page.width - qrSize) / 2, 160, { width: qrSize, height: qrSize });
+      } else {
+        doc.fillColor("#AA0000").fontSize(10).text("QR non disponibile", { align: "center" });
+      }
+
+      doc.fillColor("#666666").fontSize(7.5).text(`Token: ${a.qrToken}`, doc.page.margins.left, 330, { align: "center" });
+      doc.moveTo(doc.page.margins.left, 350).lineTo(doc.page.width - doc.page.margins.right, 350).strokeColor("#DDDDDD").stroke();
+      doc.fillColor("#444444").fontSize(8).text("Mostra questo QR all’ingresso. Una volta scansionato non sarà valido.", doc.page.margins.left, 358, {
+        align: "center",
+        width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
+      });
+    }
+
+    doc.end();
+    const buf = await done;
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=tickets.pdf");
+    res.send(buf);
+  } catch (e) {
+    res.status(500).json({ error: e.message || "PDF bulk failed" });
+  }
 });
 
 // Backup / restore JSON
