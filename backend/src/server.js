@@ -6,7 +6,6 @@ import morgan from "morgan";
 import dotenv from "dotenv";
 import http from "http";
 import { buildTicketPdf } from "./pdf.js";
-import { getAll } from "./store.js";
 import { Server as SocketIOServer } from "socket.io";
 import { fileURLToPath } from "url";
 
