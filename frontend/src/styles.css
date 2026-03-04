@@ -112,3 +112,80 @@ tr:hover td{ background: rgba(255,255,255,.02); }
 .small{ font-size:12px; color:var(--muted); }
 .success{ color: var(--green); }
 .error{ color: var(--red); }
+
+.scanner-container{
+padding:20px;
+text-align:center;
+}
+
+.scanner-header h2{
+font-size:28px;
+margin-bottom:5px;
+}
+
+.scanner-header p{
+color:#888;
+}
+
+.scanner-camera{
+max-width:420px;
+margin:auto;
+}
+
+.scan-result{
+margin-top:20px;
+padding:20px;
+border-radius:12px;
+font-size:20px;
+}
+
+.scan-result.ok{
+background:#e6ffed;
+color:#0f7a33;
+}
+
+.scan-result.error{
+background:#ffecec;
+color:#a00000;
+}
+
+.scanner-buttons{
+margin-top:20px;
+}
+
+.btn-start{
+background:#2ecc71;
+color:white;
+padding:16px 24px;
+font-size:18px;
+border-radius:10px;
+border:none;
+}
+
+.btn-stop{
+background:#e74c3c;
+color:white;
+padding:16px 24px;
+font-size:18px;
+border-radius:10px;
+border:none;
+}
+
+@media (max-width:600px){
+
+.scanner-camera{
+width:100%;
+}
+
+.scan-result{
+font-size:22px;
+}
+
+.btn-start,
+.btn-stop{
+width:100%;
+font-size:20px;
+padding:18px;
+}
+
+}
