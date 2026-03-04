@@ -91,7 +91,7 @@ export default function ScannerView() {
           await qrRef.current?.resume();
         } catch {}
         lockRef.current = false;
-      }, 450);
+      }, 3000); //PAUSA 3 SEGUNDOS
     }
   }
 

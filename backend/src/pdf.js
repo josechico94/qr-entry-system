@@ -42,7 +42,7 @@ export function buildTicketPdf(attendee) {
   if (hasLogo) {
     doc.image(logoPath, doc.page.margins.left, 18, { width: 120 });
   }
-  doc.fontSize(14).fillColor("#111111").text("BOLOGNA RUGBY CLUB", 0, 22, { align: "right" });
+  doc.fontSize(14).fillColor("#111111").text("BOLOGNA RUGBY CLUB - FESTA DE FINE SESSIONE", 0, 22, { align: "right" });
   doc.fontSize(10).fillColor("#444444").text("Biglietto di ingresso • QR monouso", { align: "right" });
 
   // Attendee box (rounded)
