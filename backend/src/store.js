@@ -79,6 +79,9 @@ function validateAttendeePayload(payload) {
 export async function createAttendee(payload) {
   const data = readData();
   const clean = validateAttendeePayload(payload);
+  const all = getAll();
+  const maxTicket = all.reduce((m, a) => Math.max(m, Number(a.ticketNumber || 0)), 0);
+  const nextTicket = maxTicket + 1;
 
   const id = uuidv4();
   const token = uuidv4();
@@ -100,6 +103,7 @@ export async function createAttendee(payload) {
     createdAt: now,
     updatedAt: now,
     scannedAt: null,
+    ticketNumber: nextTicket,
     editedAfterScan: false
   };
 
