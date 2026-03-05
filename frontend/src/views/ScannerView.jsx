@@ -15,7 +15,7 @@ export default function ScannerView() {
   const audioCtxRef = useRef(null);
   const lockRef = useRef(false);
 
-  const PAUSE_MS = 3000; // pausa entre escaneos (3s)
+  const PAUSE_MS = 1000; // pausa entre escaneos (1s)
 
   function ensureAudioContext() {
     if (!audioCtxRef.current) {
@@ -149,7 +149,7 @@ export default function ScannerView() {
   async function closeCardAndContinue() {
     setShowCard(false);
 
-    // wait 3s between scans (requested)
+    // wait 1s between scans (requested)
     setTimeout(async () => {
       try {
         await qrRef.current?.resume();
@@ -168,7 +168,7 @@ export default function ScannerView() {
       <div className="scannerTop">
         <div>
           <div className="scannerTitle">Check-in (Beta)</div>
-          <div className="scannerSub">QR monouso • Risultato in scheda • Pausa 3s</div>
+          <div className="scannerSub">QR monouso • Risultato in scheda • Pausa 1s</div>
         </div>
 
         <div className="scannerToggles">
@@ -243,7 +243,7 @@ export default function ScannerView() {
             ) : null}
 
             <div className="overlayHint">
-              La scansione riparte automaticamente dopo 3 secondi.
+              La scansione riparte automaticamente dopo 1 secondo.
             </div>
 
             <div className="overlayActions">
