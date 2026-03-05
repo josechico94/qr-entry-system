@@ -92,7 +92,7 @@ export function drawTicket(doc, attendee, opts = {}){
   doc.font("Helvetica").fontSize(10).text(eventSubtitle, 82, 40, { width: pageW - 110 });
 
   doc.fillColor("#EAF2FF");
-  doc.font("Helvetica-Bold").fontSize(10).text(`Orario: ${eventTime}`, 26, 58, { width: pageW - 52 });
+  doc.font("Helvetica-Bold").fontSize(10).text(`Orario: ${eventTime}`, 26, 58, { width: pageW - 52 , align: "right"});
   if(eventPlace){
     doc.font("Helvetica").fontSize(9).text(eventPlace, 26, 72, { width: pageW - 52 });
   }
