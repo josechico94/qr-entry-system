@@ -13,7 +13,9 @@ const DATA_FILE = path.join(DATA_DIR, "attendees.json");
 
 function ensureDataFile() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, JSON.stringify({ attendees: [] }, null, 2), "utf8");
+  if (!fs.existsSync(DATA_FILE)) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ attendees: [], nextTicketNumber: 1 }, null, 2), "utf8");
+  }
 }
 ensureDataFile();
 
@@ -22,6 +24,13 @@ function readData() {
   const raw = fs.readFileSync(DATA_FILE, "utf8");
   const parsed = JSON.parse(raw);
   if (!parsed.attendees) parsed.attendees = [];
+  // Initialize / repair ticket counter
+  const maxT = parsed.attendees.reduce((m, a) => Math.max(m, Number(a.ticketNumber || 0)), 0);
+  if (!parsed.nextTicketNumber || typeof parsed.nextTicketNumber !== "number") {
+    parsed.nextTicketNumber = maxT + 1;
+  } else if (parsed.nextTicketNumber <= maxT) {
+    parsed.nextTicketNumber = maxT + 1;
+  }
   return parsed;
 }
 
@@ -79,18 +88,18 @@ function validateAttendeePayload(payload) {
 export async function createAttendee(payload) {
   const data = readData();
   const clean = validateAttendeePayload(payload);
-  const all = getAll();
-  const maxTicket = all.reduce((m, a) => Math.max(m, Number(a.ticketNumber || 0)), 0);
-  const nextTicket = maxTicket + 1;
 
   const id = uuidv4();
   const token = uuidv4();
   const now = new Date().toISOString();
 
+  const ticketNumber = data.nextTicketNumber++;
+
   const qrDataUrl = await makeQrDataUrl(token);
 
   const attendee = {
     id,
+    ticketNumber,
     firstName: clean.firstName,
     lastName: clean.lastName,
     document: clean.document,
@@ -103,7 +112,6 @@ export async function createAttendee(payload) {
     createdAt: now,
     updatedAt: now,
     scannedAt: null,
-    ticketNumber: nextTicket,
     editedAfterScan: false
   };
 
@@ -243,10 +251,11 @@ export async function importXlsxBuffer(buffer) {
       const id = uuidv4();
       const token = uuidv4();
       const now = new Date().toISOString();
+      const ticketNumber = data.nextTicketNumber++;
       const qrDataUrl = await makeQrDataUrl(token);
 
       existing.unshift({
-        id, firstName, lastName, document, email, phone, notes,
+        id, ticketNumber, firstName, lastName, document, email, phone, notes,
         qrToken: token,
         qrDataUrl,
         status: "PENDING",
@@ -285,6 +294,7 @@ export function exportCsv() {
 
 export function exportXlsx() {
   const attendees = getAll().map(a => ({
+    ticket: a.ticketNumber,
     nombre: a.firstName,
     apellido: a.lastName,
     documento: a.document,

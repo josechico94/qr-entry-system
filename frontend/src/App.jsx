@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { apiDelete, apiGet, apiPost, apiPut, download } from './api'
 import StatusBadge from './components/StatusBadge'
@@ -27,6 +27,15 @@ function StatCard({ tone='blue', icon, label, value, sub }){
   )
 }
 
+function Progress({ value=0 }){
+  const v = Math.max(0, Math.min(100, value))
+  return (
+    <div className="progress">
+      <div className="progress-bar" style={{ width: v + '%' }} />
+    </div>
+  )
+}
+
 function EmptyState({ title, subtitle, actionLabel, onAction }){
   return (
     <div className="empty">
@@ -50,18 +59,19 @@ export default function App(){
   const [statusFilter, setStatusFilter] = useState('ALL')
 
   const [modal, setModal] = useState(null) // {mode:'create'|'edit'|'qr', attendee?}
-  const [toast, setToast] = useState(null) // {type,text}
+  const [toast, setToast] = useState(null) // {type:'success'|'error', text}
+
+  const prevScannedRef = useRef(0)
+  const [pulse, setPulse] = useState(false)
 
   useEffect(()=>{
     let mounted = true
 
-    apiGet('/api/attendees')
-      .then(({attendees, counts})=>{
-        if(!mounted) return
-        setAttendees(attendees || [])
-        setCounts(counts || { total:0, pending:0, scanned:0, modified:0 })
-      })
-      .catch(e=> setToast({type:'error', text: e.message}))
+    apiGet('/api/attendees').then(({attendees, counts})=>{
+      if(!mounted) return
+      setAttendees(attendees || [])
+      setCounts(counts || { total:0, pending:0, scanned:0, modified:0 })
+    }).catch(e=> setToast({type:'error', text:e.message}))
 
     const socket = io()
     socket.on('attendees:changed', (payload)=>{
@@ -72,12 +82,24 @@ export default function App(){
     return ()=>{ mounted=false; socket.close() }
   }, [])
 
-  // auto hide toast
+  // toast auto-hide
   useEffect(()=>{
     if(!toast) return
     const t = setTimeout(()=>setToast(null), 3200)
     return ()=>clearTimeout(t)
   }, [toast])
+
+  // pulse animation when scanned count increases
+  useEffect(()=>{
+    const prev = prevScannedRef.current
+    if(counts.scanned > prev){
+      setPulse(true)
+      const t = setTimeout(()=>setPulse(false), 700)
+      prevScannedRef.current = counts.scanned
+      return ()=>clearTimeout(t)
+    }
+    prevScannedRef.current = counts.scanned
+  }, [counts.scanned])
 
   const filtered = useMemo(()=>{
     const qq = q.trim().toLowerCase()
@@ -88,6 +110,19 @@ export default function App(){
       return blob.includes(qq)
     })
   }, [attendees, q, statusFilter])
+
+  const recentScans = useMemo(()=>{
+    return [...attendees]
+      .filter(a=>a.scannedAt)
+      .sort((a,b)=> new Date(b.scannedAt).getTime() - new Date(a.scannedAt).getTime())
+      .slice(0, 8)
+  }, [attendees])
+
+  const scannedPct = useMemo(()=>{
+    const t = counts.total || 0
+    if(!t) return 0
+    return Math.round((counts.scanned / t) * 100)
+  }, [counts.total, counts.scanned])
 
   async function onCreate(values){
     try{
@@ -103,7 +138,7 @@ export default function App(){
     try{
       await apiPut(`/api/attendees/${id}`, values)
       setModal(null)
-      setToast({type:'success', text:'Aggiornato con successo.'})
+      setToast({type:'success', text:'Aggiornato.'})
     }catch(e){
       setToast({type:'error', text:e.message})
     }
@@ -129,17 +164,9 @@ export default function App(){
     }
   }
 
-  function openQrModal(a){
-    setModal({mode:'qr', attendee:a})
-  }
-
-  function openEditModal(a){
-    setModal({mode:'edit', attendee:a})
-  }
-
   return (
     <div className="app">
-      {/* TOP NAV */}
+      {/* TOPBAR */}
       <div className="topbar">
         <div className="brand">
           <div className="brand-mark">QR</div>
@@ -158,20 +185,19 @@ export default function App(){
         <div className="top-actions">
           <button className="btn btn-ghost" onClick={()=>download('/api/tickets.pdf')}>🎫 PDF</button>
           <button className="btn btn-ghost" onClick={()=>download('/api/export.xlsx')}>📄 XLSX</button>
-          <button className="btn btn-primary" onClick={()=>setTab('scanner')}>📷 Check-in</button>
+          <button className={cx('btn','btn-primary', pulse && 'btn-pulse')} onClick={()=>setTab('scanner')}>📷 Check-in</button>
         </div>
       </div>
 
       {/* TOAST */}
       {toast ? (
-        <div className={cx('toast', toast.type === 'error' ? 'toast-error' : 'toast-ok')}>
+        <div className={cx('toast', toast.type==='error' ? 'toast-error' : 'toast-ok')}>
           <div className="toast-dot" />
           <div className="toast-text">{toast.text}</div>
           <button className="toast-x" onClick={()=>setToast(null)}>✕</button>
         </div>
       ) : null}
 
-      {/* CONTENT */}
       <div className="container">
         {tab === 'scanner' ? (
           <ScannerView onBack={()=>setTab('dashboard')} />
@@ -185,27 +211,38 @@ export default function App(){
                 <div className="hero-kicker">Event Dashboard</div>
                 <div className="hero-title">Monitoraggio accessi</div>
                 <div className="hero-sub">
-                  Stato ingressi in tempo reale · QR monouso · Operatività ottimizzata per staff
+                  Stato ingressi in tempo reale · QR monouso · Esperienza ottimizzata per check-in rapido
                 </div>
 
                 <div className="hero-cta">
-                  <button className="btn btn-primary" onClick={()=>setTab('scanner')}>📷 Avvia Check-in</button>
-                  <button className="btn btn-ghost" onClick={()=>download('/api/tickets.pdf')}>🎫 Scarica PDF (tutti)</button>
-                  <button className="btn btn-ghost" onClick={()=>download('/api/backup.json')}>🧠 Backup JSON</button>
+                  <button className={cx('btn','btn-primary', pulse && 'btn-pulse')} onClick={()=>setTab('scanner')}>📷 Avvia Check-in</button>
+                  <button className="btn btn-ghost" onClick={()=>download('/api/tickets.pdf')}>🎫 PDF (tutti)</button>
+                  <button className="btn btn-ghost" onClick={()=>download('/api/backup.json')}>🧠 Backup</button>
                 </div>
               </div>
 
               <div className="hero-right">
                 <div className="hero-card">
-                  <div className="hero-card-title">Quick actions</div>
+                  <div className="hero-card-title">Live check-in</div>
+
+                  <div className="hero-metric">
+                    <div className="hero-metric-top">
+                      <div className="hero-metric-label">Scansionati</div>
+                      <div className="hero-metric-value">{counts.scanned} / {counts.total}</div>
+                    </div>
+                    <Progress value={scannedPct} />
+                    <div className="hero-metric-foot">{scannedPct}% completato</div>
+                  </div>
+
                   <div className="hero-card-actions">
                     <button className="btn btn-ghost" onClick={()=>download('/api/export.csv')}>CSV</button>
                     <button className="btn btn-ghost" onClick={()=>download('/api/export.xlsx')}>XLSX</button>
                     <button className="btn btn-warn" onClick={onReset}>Reset scansioni</button>
                     <button className="btn btn-primary" onClick={()=>setModal({mode:'create'})}>+ Nuovo</button>
                   </div>
+
                   <div className="hero-card-note">
-                    Suggerimento: usa <b>Check-in</b> per una scansione rapida e continua.
+                    Suggerimento: mantieni il telefono in posizione e lascia che lo staff scansiona in sequenza.
                   </div>
                 </div>
               </div>
@@ -221,6 +258,40 @@ export default function App(){
               <StatCard tone="yellow" icon="🟡" label="Modificati" value={counts.modified} sub="Aggiornati manualmente" />
             </div>
 
+            {/* LIVE FEED */}
+            <div className="feed">
+              <div className="feed-head">
+                <div>
+                  <div className="feed-title">Ultimi accessi</div>
+                  <div className="feed-sub">Aggiornamento in tempo reale (ultimi 8 check-in)</div>
+                </div>
+                <div className="feed-actions">
+                  <button className="btn btn-ghost" onClick={()=>setTab('scanner')}>📷 Vai allo scanner</button>
+                </div>
+              </div>
+
+              {recentScans.length === 0 ? (
+                <div className="feed-empty">
+                  Nessuna scansione ancora. Quando inizi il check-in, qui vedrai gli ultimi accessi.
+                </div>
+              ) : (
+                <div className="feed-list">
+                  {recentScans.map(a=> (
+                    <div className="feed-item" key={a.id}>
+                      <div className="feed-dot" />
+                      <div className="feed-main">
+                        <div className="feed-name">{a.firstName} {a.lastName}</div>
+                        <div className="feed-meta">Ticket #{a.ticketNumber || '-'} · {formatDt(a.scannedAt)}</div>
+                      </div>
+                      <div className="feed-right">
+                        <StatusBadge status={a.status} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* TOOLBAR */}
             <div className="toolbar">
               <div className="toolbar-left">
@@ -233,17 +304,14 @@ export default function App(){
 
                 <div className="search">
                   <span className="search-ic">⌕</span>
-                  <input
-                    placeholder="Cerca: nome, documento, email…"
-                    value={q}
-                    onChange={e=>setQ(e.target.value)}
-                  />
+                  <input placeholder="Cerca: nome, documento, email…" value={q} onChange={e=>setQ(e.target.value)} />
                 </div>
               </div>
 
               <div className="toolbar-right">
-                <button className="btn btn-ghost" onClick={()=>download('/api/tickets.pdf')}>🎫 PDF</button>
-                <button className="btn btn-ghost" onClick={()=>download('/api/export.xlsx')}>📄 XLSX</button>
+                <button className="btn btn-ghost" onClick={()=>setTab('import')}>⬆️ Importa</button>
+                <button className="btn btn-ghost" onClick={()=>download('/api/backup.json')}>Backup</button>
+                <RestoreButton setToast={setToast} />
                 <button className="btn btn-primary" onClick={()=>setModal({mode:'create'})}>+ Nuovo</button>
               </div>
             </div>
@@ -256,8 +324,8 @@ export default function App(){
                   <div className="panel-sub">Verde = In attesa · Giallo = Modificato · Rosso = Scansionato (monouso)</div>
                 </div>
                 <div className="panel-actions">
-                  <button className="btn btn-ghost" onClick={()=>setTab('import')}>⬆️ Importa</button>
-                  <button className="btn btn-ghost" onClick={()=>download('/api/backup.json')}>Backup</button>
+                  <button className="btn btn-ghost" onClick={()=>download('/api/tickets.pdf')}>🎫 PDF</button>
+                  <button className="btn btn-ghost" onClick={()=>download('/api/export.xlsx')}>📄 XLSX</button>
                 </div>
               </div>
 
@@ -282,16 +350,14 @@ export default function App(){
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map(a=>(
+                      {filtered.map(a=> (
                         <tr key={a.id}>
                           <td className="td-name">
                             <div className="name-line">
                               <div className="name">{a.firstName} {a.lastName}</div>
                               <div className="meta">Ticket #{a.ticketNumber || '-'} · ID {(a.qrToken || '').slice(-8)}</div>
                             </div>
-                            <div className="meta">
-                              {a.email || '-'} {a.phone ? ` · ${a.phone}` : ''}
-                            </div>
+                            <div className="meta">{a.email || '-'}{a.phone ? ` · ${a.phone}` : ''}</div>
                           </td>
                           <td>{a.document || '-'}</td>
                           <td><StatusBadge status={a.status} /></td>
@@ -299,9 +365,9 @@ export default function App(){
                           <td>{formatDt(a.scannedAt)}</td>
                           <td className="td-actions">
                             <div className="actions">
-                              <button className="btn btn-ghost" onClick={()=>download(`/api/ticket/${a.id}.pdf`)}>Ticket</button>
-                              <button className="btn btn-ghost" onClick={()=>openQrModal(a)}>QR</button>
-                              <button className="btn btn-ghost" onClick={()=>openEditModal(a)}>Modifica</button>
+                              <button className="btn btn-ghost" type="button" onClick={()=>download(`/api/ticket/${a.id}.pdf`)}>🎫 Ticket</button>
+                              <button className="btn btn-ghost" onClick={()=>setModal({mode:'qr', attendee:a})}>QR</button>
+                              <button className="btn btn-ghost" onClick={()=>setModal({mode:'edit', attendee:a})}>Modifica</button>
                               <button className="btn btn-danger" onClick={()=>onDelete(a.id)}>Elimina</button>
                             </div>
                           </td>
@@ -434,9 +500,40 @@ function AttendeeForm({ initial, submitLabel, onSubmit }){
           <input value={v.notes} onChange={e=>set('notes', e.target.value)} />
         </div>
       </div>
-
       <div style={{height:12}} />
-      <button className="btn btn-primary" disabled={busy}>{busy ? 'Salvataggio…' : submitLabel}</button>
+      <button className="btn btn-primary" disabled={busy}>{busy?'Salvataggio…':submitLabel}</button>
     </form>
+  )
+}
+
+function RestoreButton({ setToast }){
+  const [busy, setBusy] = useState(false)
+
+  return (
+    <label className={cx('btn','btn-ghost')} style={{cursor:'pointer'}}>
+      {busy ? 'Ripristino…' : 'Restore JSON'}
+      <input
+        type="file"
+        accept="application/json"
+        style={{display:'none'}}
+        disabled={busy}
+        onChange={async (e)=>{
+          const file = e.target.files?.[0]
+          if(!file) return
+          setBusy(true)
+          try{
+            const buf = await file.arrayBuffer()
+            const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+            await apiPost('/api/restore.json', { jsonBase64: b64 })
+            setToast?.({type:'success', text:'Restore OK'})
+          }catch(err){
+            setToast?.({type:'error', text: err.message})
+          }finally{
+            setBusy(false)
+            e.target.value = ''
+          }
+        }}
+      />
+    </label>
   )
 }

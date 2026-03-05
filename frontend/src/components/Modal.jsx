@@ -1,16 +1,37 @@
-import React from 'react'
+import React, { useEffect } from "react";
 
-export default function Modal({ title, children, onClose }){
+export default function Modal({ title, onClose, children }) {
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === "Escape") onClose?.();
+    }
+    window.addEventListener("keydown", onKey);
+
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal" onMouseDown={(e)=>e.stopPropagation()}>
-        <div className="row" style={{justifyContent:'space-between'}}>
-          <div style={{fontWeight:800}}>{title}</div>
-          <button className="btn" onClick={onClose}>Cerrar</button>
+    <div
+      className="modalOverlay"
+      onMouseDown={(e) => {
+        if (e.target.classList.contains("modalOverlay")) onClose?.();
+      }}
+    >
+      <div className="modalBox" role="dialog" aria-modal="true" aria-label={title || "Modal"}>
+        <div className="modalHeader">
+          <div className="modalTitle">{title}</div>
+          <button className="modalClose" onClick={onClose} aria-label="Chiudi">
+            ✕
+          </button>
         </div>
-        <div className="hr" />
-        {children}
+        <div className="modalBody">{children}</div>
       </div>
     </div>
-  )
+  );
 }
