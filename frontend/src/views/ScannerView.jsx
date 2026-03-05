@@ -3,16 +3,19 @@ import { Html5Qrcode } from "html5-qrcode";
 import { apiPost } from "../api";
 
 export default function ScannerView() {
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState(null); // {ok,message,attendee}
   const [running, setRunning] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
 
+  const [showCard, setShowCard] = useState(false); // modal overlay
   const readerId = "qr-reader";
   const qrRef = useRef(null);
   const audioCtxRef = useRef(null);
-  const lockRef = useRef(false); // evita dobles lecturas
+  const lockRef = useRef(false);
+
+  const PAUSE_MS = 3000; // pausa entre escaneos (3s)
 
   function ensureAudioContext() {
     if (!audioCtxRef.current) {
@@ -29,12 +32,10 @@ export default function ScannerView() {
 
     osc.type = "sine";
     osc.frequency.value = ok ? 880 : 220;
-
     gain.gain.value = 0.08;
 
     osc.connect(gain);
     gain.connect(ctx.destination);
-
     osc.start();
     setTimeout(() => osc.stop(), ok ? 90 : 160);
   }
@@ -49,7 +50,7 @@ export default function ScannerView() {
     const qr = new Html5Qrcode(readerId);
     qrRef.current = qr;
 
-    // Rear camera first
+    // Prefer rear camera
     try {
       await qr.start(
         { facingMode: "environment" },
@@ -60,7 +61,7 @@ export default function ScannerView() {
       setRunning(true);
       return;
     } catch {
-      // fallback: pick a "back" camera
+      // fallback to first camera / back camera label
     }
 
     const cams = await Html5Qrcode.getCameras();
@@ -72,26 +73,27 @@ export default function ScannerView() {
   }
 
   async function onDecoded(decodedText) {
+    // prevent multi-trigger
     if (lockRef.current) return;
     lockRef.current = true;
 
     try {
+      // pause scanner while we show result
+      try { await qrRef.current?.pause(true); } catch {}
+
       const res = await apiPost("/api/scan", { token: decodedText });
       setResult(res);
       beep(!!res.ok);
       vibrate(!!res.ok);
+
+      // show overlay card
+      setShowCard(true);
     } catch (e) {
-      setResult({ ok: false, message: e.message });
+      const res = { ok: false, message: e.message };
+      setResult(res);
       beep(false);
       vibrate(false);
-    } finally {
-      // Escaneo continuo: reanudamos rápido para el próximo QR
-      setTimeout(async () => {
-        try {
-          await qrRef.current?.resume();
-        } catch {}
-        lockRef.current = false;
-      }, 3000); //PAUSA 3 SEGUNDOS
+      setShowCard(true);
     }
   }
 
@@ -133,12 +135,10 @@ export default function ScannerView() {
     } catch {}
   }
 
-  async function resume() {
+  async function resumeFresh() {
     try {
       setCameraError("");
       setResult(null);
-
-      // Algunos móviles fallan con resume() tras pause/stop, reiniciamos seguro.
       await stop();
       await startScanner();
     } catch (e) {
@@ -146,12 +146,29 @@ export default function ScannerView() {
     }
   }
 
+  async function closeCardAndContinue() {
+    setShowCard(false);
+
+    // wait 3s between scans (requested)
+    setTimeout(async () => {
+      try {
+        await qrRef.current?.resume();
+        setRunning(true);
+      } catch {
+        // fallback: restart
+        await resumeFresh();
+      } finally {
+        lockRef.current = false;
+      }
+    }, PAUSE_MS);
+  }
+
   return (
     <div className="scannerPage">
       <div className="scannerTop">
         <div>
           <div className="scannerTitle">Check-in (Beta)</div>
-          <div className="scannerSub">QR monouso • Scansione continua</div>
+          <div className="scannerSub">QR monouso • Risultato in scheda • Pausa 3s</div>
         </div>
 
         <div className="scannerToggles">
@@ -174,46 +191,67 @@ export default function ScannerView() {
               {running ? (
                 <button className="btn ghost" onClick={stop}>Pausa</button>
               ) : (
-                <button className="btn primary" onClick={resume}>Avvia</button>
+                <button className="btn primary" onClick={resumeFresh}>Avvia</button>
               )}
             </div>
           </div>
 
           <div id={readerId} className="scannerReader" />
           <div className="hint">
-            Consiglio: usa la fotocamera posteriore. L’app vibra e fa beep su OK/KO.
+            Dopo la scansione, si apre una scheda a schermo intero. Chiudi per continuare.
           </div>
         </div>
 
         <div className="scannerCard">
           <div className="scannerCardHeader">
-            <div className="scannerCardTitle">Risultato</div>
+            <div className="scannerCardTitle">Stato</div>
           </div>
 
-          {!result ? (
-            <div className="emptyState">
-              <div className="dot" />
-              <div>
-                <div className="emptyTitle">In attesa di un QR…</div>
-                <div className="emptySub">Punta la camera e scansiona.</div>
-              </div>
+          <div className="emptyState">
+            <div className="dot" />
+            <div>
+              <div className="emptyTitle">Pronto a scansionare</div>
+              <div className="emptySub">Il risultato apparirà come scheda (overlay).</div>
             </div>
-          ) : (
-            <div className={"resultBox " + (result.ok ? "ok" : "ko")}>
-              <div className="resultMsg">{result.message}</div>
-              {result.attendee ? (
-                <div className="resultMeta">
-                  <div className="name">{result.attendee.firstName} {result.attendee.lastName}</div>
-                  <div className="metaRow">Documento: <b>{result.attendee.document || "-"}</b></div>
-                  <div className="metaRow">Stato: <b>{result.attendee.status}</b></div>
-                  <div className="metaRow">Scansionato: <b>{result.attendee.scannedAt || "-"}</b></div>
-                </div>
-              ) : null}
-              <div className="resultHint">Scansione continua attiva: pronto per il prossimo QR.</div>
-            </div>
-          )}
+          </div>
         </div>
       </div>
+
+      {/* FULLSCREEN OVERLAY CARD */}
+      {showCard && result ? (
+        <div className="overlay">
+          <div className={"overlayCard " + (result.ok ? "ok" : "ko")}>
+            <div className="overlayTop">
+              <div className="overlayTitle">{result.ok ? "✅ ACCESSO CONSENTITO" : "⛔ ACCESSO NEGATO"}</div>
+              <button className="overlayClose" onClick={closeCardAndContinue}>Chiudi</button>
+            </div>
+
+            <div className="overlayMsg">{result.message}</div>
+
+            {result.attendee ? (
+              <div className="overlayBody">
+                <div className="overlayName">
+                  {result.attendee.firstName} {result.attendee.lastName}
+                </div>
+                <div className="overlayMeta">
+                  <div><span>Documento</span><b>{result.attendee.document || "-"}</b></div>
+                  <div><span>Stato</span><b>{result.attendee.status}</b></div>
+                  <div><span>Scansionato</span><b>{result.attendee.scannedAt || "-"}</b></div>
+                  <div><span>Ticket #</span><b>{String(result.attendee.ticketNumber || "-")}</b></div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="overlayHint">
+              La scansione riparte automaticamente dopo 3 secondi.
+            </div>
+
+            <div className="overlayActions">
+              <button className="btn primary" onClick={closeCardAndContinue}>Continua</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
