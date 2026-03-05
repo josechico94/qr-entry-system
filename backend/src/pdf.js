@@ -1,6 +1,11 @@
 import PDFDocument from "pdfkit";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const logoPath = path.resolve(__dirname, "../assets/logo.png");
 
 function safeText(v){ return (v ?? "").toString(); }
 
@@ -29,36 +34,30 @@ function roundedRect(doc, x, y, w, h, r){
     .closePath();
 }
 
-export function buildTicketPdf(attendee, opts = {}){
+/**
+ * Disegna il ticket dentro un PDFDocument esistente (utile per multipagina)
+ */
+export function drawTicket(doc, attendee, opts = {}){
   const {
     eventName = "BOLOGNA RUGBY CLUB",
     eventSubtitle = "Festa fine sessione",
     eventTime = "22:00 – 04:00",
-    eventPlace = "", // opcional
+    eventPlace = "",
     watermark = "VALIDO SOLO 1 INGRESSO",
   } = opts;
 
-  const doc = new PDFDocument({
-    size: "A6",
-    margin: 22,
-    info: {
-      Title: `Ticket ${safeText(attendee?.ticketNumber ?? "")}`,
-      Author: "QR Entry System",
-    }
-  });
-
   // Theme
-  const BLUE = "#1D4ED8";     // azul principal
-  const BLUE_D = "#1E3A8A";   // azul oscuro
+  const BLUE = "#1D4ED8";
+  const BLUE_D = "#1E3A8A";
   const INK = "#0B1220";
   const MUTED = "#334155";
   const BORDER = "#93C5FD";
   const BG = "#F8FAFC";
 
-  // Background card
   const pageW = doc.page.width;
   const pageH = doc.page.height;
 
+  // Background
   doc.rect(0, 0, pageW, pageH).fill(BG);
   doc.fillColor(INK);
 
@@ -80,9 +79,8 @@ export function buildTicketPdf(attendee, opts = {}){
   doc.fill();
   doc.restore();
 
-  // Logo (optional)
+  // Logo
   try{
-    const logoPath = path.join(process.cwd(), "backend", "assets", "logo.png");
     if (fs.existsSync(logoPath)) {
       doc.image(logoPath, 26, 24, { width: 50 });
     }
@@ -93,7 +91,6 @@ export function buildTicketPdf(attendee, opts = {}){
   doc.font("Helvetica-Bold").fontSize(12).text(eventName, 82, 24, { width: pageW - 110 });
   doc.font("Helvetica").fontSize(10).text(eventSubtitle, 82, 40, { width: pageW - 110 });
 
-  // Time + Place row
   doc.fillColor("#EAF2FF");
   doc.font("Helvetica-Bold").fontSize(10).text(`Orario: ${eventTime}`, 26, 58, { width: pageW - 52 });
   if(eventPlace){
@@ -144,8 +141,7 @@ export function buildTicketPdf(attendee, opts = {}){
   doc.fillColor(BLUE_D).font("Helvetica-Bold").fontSize(10)
     .text("SCAN PER INGRESSO", qrX - 10, qrY - 2, { width: qrSize + 20, align: "center" });
 
-  // Insert QR image
-  // attendee.qrDataUrl is expected: "data:image/png;base64,..."
+  // QR image
   try{
     const b64 = (attendee.qrDataUrl || "").split(",")[1];
     if (b64) {
@@ -154,16 +150,31 @@ export function buildTicketPdf(attendee, opts = {}){
     }
   }catch{}
 
-  // Token small (optional)
+  // Token
   doc.fillColor(MUTED).font("Helvetica").fontSize(7)
     .text(`Token: ${safeText(attendee.qrToken)}`, 26, qrY + qrSize + 30, { width: pageW - 52, align: "center" });
 
-  // Footer note
+  // Footer
   doc.fillColor(INK).font("Helvetica").fontSize(8)
     .text("Mostra questo QR all’ingresso. Dopo la scansione non sarà più valido.", 26, pageH - 42, {
       width: pageW - 52,
       align: "center"
     });
+}
 
+/**
+ * Wrapper: crea un PDF A6 singolo (utile per ticket individuale)
+ */
+export function buildTicketPdf(attendee, opts = {}){
+  const doc = new PDFDocument({
+    size: "A6",
+    margin: 22,
+    info: {
+      Title: `Ticket ${safeText(attendee?.ticketNumber ?? "")}`,
+      Author: "QR Entry System",
+    }
+  });
+
+  drawTicket(doc, attendee, opts);
   return doc;
 }

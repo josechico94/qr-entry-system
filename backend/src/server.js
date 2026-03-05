@@ -5,11 +5,25 @@ import cors from "cors";
 import morgan from "morgan";
 import dotenv from "dotenv";
 import http from "http";
+import PDFDocument from "pdfkit";
 import { Server as SocketIOServer } from "socket.io";
 import { fileURLToPath } from "url";
 
-import { createAttendee, deleteAttendee, exportCsv, exportXlsx, getAll, getCounts, importXlsxBuffer, resetScans, restoreJson, scanToken, updateAttendee } from "./store.js";
-import { buildTicketPdf, createTicketDoc, getPdfOptionsFromEnv } from "./pdf.js";
+import {
+  createAttendee,
+  deleteAttendee,
+  exportCsv,
+  exportXlsx,
+  getAll,
+  getCounts,
+  importXlsxBuffer,
+  resetScans,
+  restoreJson,
+  scanToken,
+  updateAttendee,
+} from "./store.js";
+
+import { buildTicketPdf, drawTicket } from "./pdf.js";
 
 dotenv.config();
 
@@ -19,7 +33,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 const io = new SocketIOServer(server, {
-  cors: { origin: true, credentials: true }
+  cors: { origin: true, credentials: true },
 });
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
@@ -38,10 +52,12 @@ function basicAuth(req, res, next) {
     res.setHeader("WWW-Authenticate", 'Basic realm="Dashboard"');
     return res.status(401).end();
   }
+
   const decoded = Buffer.from(encoded, "base64").toString("utf8");
   const idx = decoded.indexOf(":");
   const u = decoded.slice(0, idx);
   const p = decoded.slice(idx + 1);
+
   if (u === user && p === pass) return next();
   res.setHeader("WWW-Authenticate", 'Basic realm="Dashboard"');
   return res.status(401).end();
@@ -119,7 +135,7 @@ api.post("/reset", (req, res) => {
   }
 });
 
-// Import xlsx (multipart not used - we accept base64 or raw buffer via fetch)
+// Import xlsx (base64)
 api.post("/import-xlsx", async (req, res) => {
   try {
     const { fileBase64 } = req.body || {};
@@ -133,7 +149,7 @@ api.post("/import-xlsx", async (req, res) => {
   }
 });
 
-// Export
+// Export CSV
 api.get("/export.csv", (req, res) => {
   const csv = exportCsv();
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -141,6 +157,7 @@ api.get("/export.csv", (req, res) => {
   res.send(csv);
 });
 
+// Export XLSX
 api.get("/export.xlsx", (req, res) => {
   const buf = exportXlsx();
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -167,50 +184,57 @@ api.post("/restore.json", (req, res) => {
   }
 });
 
-// PDF - ticket singolo
+/** ===== PDF ROUTES (PRO) ===== **/
+
+// Ticket singolo
 api.get("/ticket/:id.pdf", (req, res) => {
   try {
-    const id = req.params.id;
-    const attendee = getAll().find(a => a.id === id);
-    if (!attendee) return res.status(404).json({ error: "Attendee not found" });
+    const a = getAll().find((x) => x.id === req.params.id);
+    if (!a) return res.status(404).json({ error: "Not found" });
 
-    const doc = createTicketDoc();
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename=ticket-${id}.pdf`);
-    doc.pipe(res);
+    res.setHeader("Content-Disposition", `inline; filename="ticket-${a.ticketNumber || a.id}.pdf"`);
 
-    buildTicketPdf(doc, attendee, getPdfOptionsFromEnv());
+    const doc = buildTicketPdf(a, {
+      eventName: "BOLOGNA RUGBY CLUB",
+      eventSubtitle: "Festa fine sessione",
+      eventTime: "22:00 – 04:00",
+      eventPlace: "",
+      watermark: "VALIDO SOLO 1 INGRESSO",
+    });
+
+    doc.pipe(res);
     doc.end();
   } catch (e) {
-    res.status(500).json({ error: e.message || "PDF failed" });
+    res.status(500).json({ error: e.message || "PDF error" });
   }
-});
-
-const doc = buildTicketPdf(attendee, {
-  eventName: "BOLOGNA RUGBY CLUB",
-  eventSubtitle: "Festa fine sessione",
-  eventTime: "22:00 – 04:00",
-  eventPlace: "", // si querés: "Via ... Bologna"
-  watermark: "VALIDO SOLO 1 INGRESSO",
 });
 
 // PDF multipagina (tutti i ticket)
 api.get("/tickets.pdf", (req, res) => {
   try {
     const attendees = getAll();
-    const doc = createTicketDoc();
+
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename=tickets.pdf`);
+    res.setHeader("Content-Disposition", `inline; filename="tickets.pdf"`);
+
+    const doc = new PDFDocument({ autoFirstPage: false });
     doc.pipe(res);
 
-    const opts = getPdfOptionsFromEnv();
-    attendees.forEach((a, idx) => {
-      if (idx > 0) doc.addPage({ size: "A6", margin: 24 });
-      buildTicketPdf(doc, a, opts);
-    });
+    for (const a of attendees) {
+      doc.addPage({ size: "A6", margin: 22 });
+      drawTicket(doc, a, {
+        eventName: "BOLOGNA RUGBY CLUB",
+        eventSubtitle: "Festa fine sessione",
+        eventTime: "22:00 – 04:00",
+        eventPlace: "",
+        watermark: "VALIDO SOLO 1 INGRESSO",
+      });
+    }
+
     doc.end();
   } catch (e) {
-    res.status(500).json({ error: e.message || "PDF failed" });
+    res.status(500).json({ error: e.message || "PDF error" });
   }
 });
 
