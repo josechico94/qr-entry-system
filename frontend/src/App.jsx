@@ -8,382 +8,435 @@ import ImportView from './views/ImportView'
 
 function formatDt(v){
   if(!v) return '-'
-  try{ return new Date(v).toLocaleString() }catch{ return v }
+  try{ return new Date(v).toLocaleString('it-IT') }catch{ return v }
+}
+
+function cx(...arr){ return arr.filter(Boolean).join(' ') }
+
+function StatCard({ tone='blue', icon, label, value, sub }){
+  return (
+    <div className={cx('stat', `stat-${tone}`)}>
+      <div className="stat-top">
+        <div className="stat-icon">{icon}</div>
+        <div className="stat-label">{label}</div>
+      </div>
+      <div className="stat-value">{value}</div>
+      {sub ? <div className="stat-sub">{sub}</div> : null}
+      <div className="stat-glow" />
+    </div>
+  )
+}
+
+function EmptyState({ title, subtitle, actionLabel, onAction }){
+  return (
+    <div className="empty">
+      <div className="empty-icon">✨</div>
+      <div className="empty-title">{title}</div>
+      <div className="empty-sub">{subtitle}</div>
+      {actionLabel ? (
+        <button className="btn btn-primary" onClick={onAction}>{actionLabel}</button>
+      ) : null}
+    </div>
+  )
 }
 
 export default function App(){
-
   const [tab, setTab] = useState('dashboard')
+
   const [attendees, setAttendees] = useState([])
   const [counts, setCounts] = useState({ total:0, pending:0, scanned:0, modified:0 })
 
   const [q, setQ] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
 
-  const [modal, setModal] = useState(null)
-  const [msg, setMsg] = useState({ type:'', text:'' })
+  const [modal, setModal] = useState(null) // {mode:'create'|'edit'|'qr', attendee?}
+  const [toast, setToast] = useState(null) // {type,text}
 
   useEffect(()=>{
-
     let mounted = true
 
     apiGet('/api/attendees')
       .then(({attendees, counts})=>{
         if(!mounted) return
-        setAttendees(attendees)
-        setCounts(counts)
+        setAttendees(attendees || [])
+        setCounts(counts || { total:0, pending:0, scanned:0, modified:0 })
       })
+      .catch(e=> setToast({type:'error', text: e.message}))
 
     const socket = io()
-
     socket.on('attendees:changed', (payload)=>{
       setAttendees(payload.attendees || [])
       setCounts(payload.counts || { total:0, pending:0, scanned:0, modified:0 })
     })
 
-    return ()=>{
-      mounted=false
-      socket.close()
-    }
-
+    return ()=>{ mounted=false; socket.close() }
   }, [])
 
+  // auto hide toast
+  useEffect(()=>{
+    if(!toast) return
+    const t = setTimeout(()=>setToast(null), 3200)
+    return ()=>clearTimeout(t)
+  }, [toast])
+
   const filtered = useMemo(()=>{
-
     const qq = q.trim().toLowerCase()
-
     return attendees.filter(a=>{
-
       if(statusFilter !== 'ALL' && a.status !== statusFilter) return false
-
       if(!qq) return true
-
-      const blob = [
-        a.firstName,
-        a.lastName,
-        a.document,
-        a.email,
-        a.phone
-      ].join(' ').toLowerCase()
-
+      const blob = [a.firstName,a.lastName,a.document,a.email,a.phone].join(' ').toLowerCase()
       return blob.includes(qq)
-
     })
-
   }, [attendees, q, statusFilter])
 
   async function onCreate(values){
-    await apiPost('/api/attendees', values)
-    setModal(null)
+    try{
+      await apiPost('/api/attendees', values)
+      setModal(null)
+      setToast({type:'success', text:'Creato con successo.'})
+    }catch(e){
+      setToast({type:'error', text:e.message})
+    }
   }
 
   async function onUpdate(id, values){
-    await apiPut(`/api/attendees/${id}`, values)
-    setModal(null)
+    try{
+      await apiPut(`/api/attendees/${id}`, values)
+      setModal(null)
+      setToast({type:'success', text:'Aggiornato con successo.'})
+    }catch(e){
+      setToast({type:'error', text:e.message})
+    }
   }
 
   async function onDelete(id){
     if(!confirm('Eliminare questo record?')) return
-    await apiDelete(`/api/attendees/${id}`)
+    try{
+      await apiDelete(`/api/attendees/${id}`)
+      setToast({type:'success', text:'Eliminato.'})
+    }catch(e){
+      setToast({type:'error', text:e.message})
+    }
   }
 
   async function onReset(){
-    if(!confirm('Reset di tutte le scansioni?')) return
-    await apiPost('/api/reset', {})
+    if(!confirm('Azzera TUTTE le scansioni e rimetti “In attesa”?')) return
+    try{
+      await apiPost('/api/reset', {})
+      setToast({type:'success', text:'Scansioni azzerate.'})
+    }catch(e){
+      setToast({type:'error', text:e.message})
+    }
+  }
+
+  function openQrModal(a){
+    setModal({mode:'qr', attendee:a})
+  }
+
+  function openEditModal(a){
+    setModal({mode:'edit', attendee:a})
   }
 
   return (
-
-    <div className="container">
-
-      {/* NAVBAR */}
-
-      <div className="nav">
-
-        <div className="left">
-          <div className="brand">QR Entry System</div>
-          <span className="badge">Realtime</span>
+    <div className="app">
+      {/* TOP NAV */}
+      <div className="topbar">
+        <div className="brand">
+          <div className="brand-mark">QR</div>
+          <div className="brand-text">
+            <div className="brand-title">QR Entry System</div>
+            <div className="brand-sub">Control Panel · Realtime</div>
+          </div>
         </div>
 
         <div className="tabs">
-          <a className={'tab '+(tab==='dashboard'?'active':'')} onClick={()=>setTab('dashboard')}>Dashboard</a>
-          <a className={'tab '+(tab==='scanner'?'active':'')} onClick={()=>setTab('scanner')}>Scanner</a>
-          <a className={'tab '+(tab==='import'?'active':'')} onClick={()=>setTab('import')}>Importa</a>
+          <button className={cx('tab', tab==='dashboard' && 'active')} onClick={()=>setTab('dashboard')}>Dashboard</button>
+          <button className={cx('tab', tab==='scanner' && 'active')} onClick={()=>setTab('scanner')}>Scanner</button>
+          <button className={cx('tab', tab==='import' && 'active')} onClick={()=>setTab('import')}>Importa</button>
         </div>
 
+        <div className="top-actions">
+          <button className="btn btn-ghost" onClick={()=>download('/api/tickets.pdf')}>🎫 PDF</button>
+          <button className="btn btn-ghost" onClick={()=>download('/api/export.xlsx')}>📄 XLSX</button>
+          <button className="btn btn-primary" onClick={()=>setTab('scanner')}>📷 Check-in</button>
+        </div>
       </div>
 
-      <div style={{height:16}}/>
+      {/* TOAST */}
+      {toast ? (
+        <div className={cx('toast', toast.type === 'error' ? 'toast-error' : 'toast-ok')}>
+          <div className="toast-dot" />
+          <div className="toast-text">{toast.text}</div>
+          <button className="toast-x" onClick={()=>setToast(null)}>✕</button>
+        </div>
+      ) : null}
 
-      {msg.text
-        ? <div className={"card "+(msg.type==='error'?'error':'success')}>{msg.text}</div>
-        : null}
-
-      {msg.text ? <div style={{height:14}}/> : null}
-
-      {/* SCANNER */}
-
-      {tab === 'scanner'
-        ? <ScannerView onBack={()=>setTab('dashboard')} />
-        : tab === 'import'
-        ? <ImportView />
-        : (
-
-        <>
-
-          {/* HERO DASHBOARD */}
-
-          <div className="hero">
-
-            <div className="heroTop">
-
-              <div>
-                <div className="heroTitle">
-                  Dashboard Evento
+      {/* CONTENT */}
+      <div className="container">
+        {tab === 'scanner' ? (
+          <ScannerView onBack={()=>setTab('dashboard')} />
+        ) : tab === 'import' ? (
+          <ImportView />
+        ) : (
+          <>
+            {/* HERO */}
+            <div className="hero">
+              <div className="hero-left">
+                <div className="hero-kicker">Event Dashboard</div>
+                <div className="hero-title">Monitoraggio accessi</div>
+                <div className="hero-sub">
+                  Stato ingressi in tempo reale · QR monouso · Operatività ottimizzata per staff
                 </div>
 
-                <div className="heroSub">
-                  Monitoraggio accessi in tempo reale
+                <div className="hero-cta">
+                  <button className="btn btn-primary" onClick={()=>setTab('scanner')}>📷 Avvia Check-in</button>
+                  <button className="btn btn-ghost" onClick={()=>download('/api/tickets.pdf')}>🎫 Scarica PDF (tutti)</button>
+                  <button className="btn btn-ghost" onClick={()=>download('/api/backup.json')}>🧠 Backup JSON</button>
                 </div>
               </div>
 
-              <div className="quickActions">
-
-                <div
-                  className="pill primary"
-                  onClick={()=>setTab('scanner')}
-                >
-                  📷 Scanner
+              <div className="hero-right">
+                <div className="hero-card">
+                  <div className="hero-card-title">Quick actions</div>
+                  <div className="hero-card-actions">
+                    <button className="btn btn-ghost" onClick={()=>download('/api/export.csv')}>CSV</button>
+                    <button className="btn btn-ghost" onClick={()=>download('/api/export.xlsx')}>XLSX</button>
+                    <button className="btn btn-warn" onClick={onReset}>Reset scansioni</button>
+                    <button className="btn btn-primary" onClick={()=>setModal({mode:'create'})}>+ Nuovo</button>
+                  </div>
+                  <div className="hero-card-note">
+                    Suggerimento: usa <b>Check-in</b> per una scansione rapida e continua.
+                  </div>
                 </div>
-
-                <div
-                  className="pill ok"
-                  onClick={()=>download('/api/tickets.pdf')}
-                >
-                  🎫 PDF Tickets
-                </div>
-
-                <div
-                  className="pill"
-                  onClick={()=>download('/api/export.xlsx')}
-                >
-                  📄 XLSX
-                </div>
-
               </div>
 
+              <div className="hero-glow" />
             </div>
 
-            {/* KPI */}
-
-            <div className="kpiGrid">
-
-              <div className="kpiPro blue">
-                <div className="kpiRow">
-                  <div>
-                    <div className="kpiLabel">Totale</div>
-                    <div className="kpiValue">{counts.total}</div>
-                  </div>
-                  <div className="kpiIcon">👥</div>
-                </div>
-              </div>
-
-              <div className="kpiPro green">
-                <div className="kpiRow">
-                  <div>
-                    <div className="kpiLabel">Pendenti</div>
-                    <div className="kpiValue">{counts.pending}</div>
-                  </div>
-                  <div className="kpiIcon">🟢</div>
-                </div>
-              </div>
-
-              <div className="kpiPro red">
-                <div className="kpiRow">
-                  <div>
-                    <div className="kpiLabel">Scansionati</div>
-                    <div className="kpiValue">{counts.scanned}</div>
-                  </div>
-                  <div className="kpiIcon">🔴</div>
-                </div>
-              </div>
-
-              <div className="kpiPro yellow">
-                <div className="kpiRow">
-                  <div>
-                    <div className="kpiLabel">Modificati</div>
-                    <div className="kpiValue">{counts.modified}</div>
-                  </div>
-                  <div className="kpiIcon">🟡</div>
-                </div>
-              </div>
-
+            {/* STATS */}
+            <div className="stats">
+              <StatCard tone="blue" icon="👥" label="Totale" value={counts.total} sub="Registrazioni" />
+              <StatCard tone="green" icon="🟢" label="In attesa" value={counts.pending} sub="Non ancora scansionati" />
+              <StatCard tone="red" icon="🔴" label="Scansionati" value={counts.scanned} sub="Ingresso effettuato" />
+              <StatCard tone="yellow" icon="🟡" label="Modificati" value={counts.modified} sub="Aggiornati manualmente" />
             </div>
 
-          </div>
+            {/* TOOLBAR */}
+            <div className="toolbar">
+              <div className="toolbar-left">
+                <div className="seg">
+                  <button className={cx('seg-btn', statusFilter==='ALL' && 'active')} onClick={()=>setStatusFilter('ALL')}>Tutti</button>
+                  <button className={cx('seg-btn', statusFilter==='PENDING' && 'active')} onClick={()=>setStatusFilter('PENDING')}>In attesa</button>
+                  <button className={cx('seg-btn', statusFilter==='MODIFIED' && 'active')} onClick={()=>setStatusFilter('MODIFIED')}>Modificati</button>
+                  <button className={cx('seg-btn', statusFilter==='SCANNED' && 'active')} onClick={()=>setStatusFilter('SCANNED')}>Scansionati</button>
+                </div>
 
-          <div style={{height:14}}/>
-
-          {/* ACTION BAR */}
-
-          <div className="actionBar">
-
-            <div className="actionLeft">
-
-              <div className="segment">
-
-                <button
-                  className={statusFilter==='ALL'?'active':''}
-                  onClick={()=>setStatusFilter('ALL')}
-                >
-                  Tutti
-                </button>
-
-                <button
-                  className={statusFilter==='PENDING'?'active':''}
-                  onClick={()=>setStatusFilter('PENDING')}
-                >
-                  Pendenti
-                </button>
-
-                <button
-                  className={statusFilter==='MODIFIED'?'active':''}
-                  onClick={()=>setStatusFilter('MODIFIED')}
-                >
-                  Modificati
-                </button>
-
-                <button
-                  className={statusFilter==='SCANNED'?'active':''}
-                  onClick={()=>setStatusFilter('SCANNED')}
-                >
-                  Scansionati
-                </button>
-
+                <div className="search">
+                  <span className="search-ic">⌕</span>
+                  <input
+                    placeholder="Cerca: nome, documento, email…"
+                    value={q}
+                    onChange={e=>setQ(e.target.value)}
+                  />
+                </div>
               </div>
 
-              <div style={{minWidth:260}}>
-                <input
-                  placeholder="Cerca nome, documento..."
-                  value={q}
-                  onChange={e=>setQ(e.target.value)}
+              <div className="toolbar-right">
+                <button className="btn btn-ghost" onClick={()=>download('/api/tickets.pdf')}>🎫 PDF</button>
+                <button className="btn btn-ghost" onClick={()=>download('/api/export.xlsx')}>📄 XLSX</button>
+                <button className="btn btn-primary" onClick={()=>setModal({mode:'create'})}>+ Nuovo</button>
+              </div>
+            </div>
+
+            {/* TABLE */}
+            <div className="panel">
+              <div className="panel-head">
+                <div>
+                  <div className="panel-title">Partecipanti</div>
+                  <div className="panel-sub">Verde = In attesa · Giallo = Modificato · Rosso = Scansionato (monouso)</div>
+                </div>
+                <div className="panel-actions">
+                  <button className="btn btn-ghost" onClick={()=>setTab('import')}>⬆️ Importa</button>
+                  <button className="btn btn-ghost" onClick={()=>download('/api/backup.json')}>Backup</button>
+                </div>
+              </div>
+
+              {filtered.length === 0 ? (
+                <EmptyState
+                  title="Nessun partecipante trovato"
+                  subtitle="Prova a cambiare filtro o importa un file Excel."
+                  actionLabel="Vai a Importa"
+                  onAction={()=>setTab('import')}
                 />
-              </div>
-
+              ) : (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Nome</th>
+                        <th>Documento</th>
+                        <th>Stato</th>
+                        <th>Aggiornato</th>
+                        <th>Scansione</th>
+                        <th className="th-right">Azioni</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map(a=>(
+                        <tr key={a.id}>
+                          <td className="td-name">
+                            <div className="name-line">
+                              <div className="name">{a.firstName} {a.lastName}</div>
+                              <div className="meta">Ticket #{a.ticketNumber || '-'} · ID {(a.qrToken || '').slice(-8)}</div>
+                            </div>
+                            <div className="meta">
+                              {a.email || '-'} {a.phone ? ` · ${a.phone}` : ''}
+                            </div>
+                          </td>
+                          <td>{a.document || '-'}</td>
+                          <td><StatusBadge status={a.status} /></td>
+                          <td>{formatDt(a.updatedAt)}</td>
+                          <td>{formatDt(a.scannedAt)}</td>
+                          <td className="td-actions">
+                            <div className="actions">
+                              <button className="btn btn-ghost" onClick={()=>download(`/api/ticket/${a.id}.pdf`)}>Ticket</button>
+                              <button className="btn btn-ghost" onClick={()=>openQrModal(a)}>QR</button>
+                              <button className="btn btn-ghost" onClick={()=>openEditModal(a)}>Modifica</button>
+                              <button className="btn btn-danger" onClick={()=>onDelete(a.id)}>Elimina</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
-            <div className="actionRight">
-
-              <button className="btn warn" onClick={onReset}>
-                Reset scansioni
-              </button>
-
-              <button
-                className="btn primary"
-                onClick={()=>setModal({mode:'create'})}
-              >
-                + Nuovo
-              </button>
-
-            </div>
-
-          </div>
-
-          <div style={{height:12}}/>
-
-          {/* TABLE */}
-
-          <div className="card">
-
-            <div className="table-wrap">
-
-              <table>
-
-                <thead>
-                  <tr>
-                    <th>Nome</th>
-                    <th>Documento</th>
-                    <th>Stato</th>
-                    <th>Aggiornato</th>
-                    <th>Scansione</th>
-                    <th>Azioni</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-
-                  {filtered.map(a=>(
-                    <tr key={a.id}>
-
-                      <td>
-                        <b>{a.firstName} {a.lastName}</b>
-                        <div className="small">{a.email || '-'}</div>
-                      </td>
-
-                      <td>{a.document || '-'}</td>
-
-                      <td>
-                        <StatusBadge status={a.status} />
-                      </td>
-
-                      <td>{formatDt(a.updatedAt)}</td>
-
-                      <td>{formatDt(a.scannedAt)}</td>
-
-                      <td>
-
-                        <div className="row">
-
-                          <button
-                            className="btn"
-                            onClick={()=>setModal({mode:'qr', attendee:a})}
-                          >
-                            QR
-                          </button>
-
-                          <button
-                            className="btn"
-                            onClick={()=>setModal({mode:'edit', attendee:a})}
-                          >
-                            Edit
-                          </button>
-
-                          <button
-                            className="btn danger"
-                            onClick={()=>onDelete(a.id)}
-                          >
-                            Delete
-                          </button>
-
-                        </div>
-
-                      </td>
-
-                    </tr>
-                  ))}
-
-                </tbody>
-
-              </table>
-
-            </div>
-
-          </div>
-
-        </>
-      )}
-
-      {/* FAB MOBILE */}
-
-      <div
-        className="mobileFab"
-        onClick={()=>setTab('scanner')}
-      >
-        📷 Scanner
+            {/* MOBILE FAB */}
+            <button className="fab" onClick={()=>setTab('scanner')}>
+              <span className="fab-ic">📷</span>
+              <span className="fab-tx">Check-in</span>
+            </button>
+          </>
+        )}
       </div>
 
+      {/* MOBILE BOTTOM NAV */}
+      <div className="bottom-nav">
+        <button className={cx('bn', tab==='dashboard' && 'active')} onClick={()=>setTab('dashboard')}>
+          <div className="bn-ic">🏠</div><div className="bn-tx">Dashboard</div>
+        </button>
+        <button className={cx('bn', tab==='scanner' && 'active')} onClick={()=>setTab('scanner')}>
+          <div className="bn-ic">📷</div><div className="bn-tx">Scanner</div>
+        </button>
+        <button className={cx('bn', tab==='import' && 'active')} onClick={()=>setTab('import')}>
+          <div className="bn-ic">⬆️</div><div className="bn-tx">Importa</div>
+        </button>
+      </div>
+
+      {/* MODALS */}
+      {modal?.mode === 'create' ? (
+        <Modal title="Crea partecipante" onClose={()=>setModal(null)}>
+          <AttendeeForm
+            initial={{ firstName:'', lastName:'', document:'', email:'', phone:'', notes:'' }}
+            submitLabel="Crea"
+            onSubmit={onCreate}
+          />
+        </Modal>
+      ) : null}
+
+      {modal?.mode === 'edit' ? (
+        <Modal title="Modifica partecipante" onClose={()=>setModal(null)}>
+          <AttendeeForm
+            initial={modal.attendee}
+            submitLabel="Salva"
+            onSubmit={(values)=>onUpdate(modal.attendee.id, values)}
+          />
+          {modal.attendee?.status === 'SCANNED' && modal.attendee?.editedAfterScan ? (
+            <div className="hintline">
+              Nota: record modificato dopo la scansione (rimane SCANSIONATO per bloccare il re-ingresso).
+            </div>
+          ) : null}
+        </Modal>
+      ) : null}
+
+      {modal?.mode === 'qr' ? (
+        <Modal title="QR del partecipante" onClose={()=>setModal(null)}>
+          <div className="qr-modal">
+            <div className="qr-left">
+              <div className="qr-title">{modal.attendee.firstName} {modal.attendee.lastName}</div>
+              <div className="qr-sub">Ticket #{modal.attendee.ticketNumber || '-'} · Stato: {modal.attendee.status}</div>
+              <div className="qr-sub">Token: {modal.attendee.qrToken}</div>
+              <div style={{height:10}} />
+              <div className="actions">
+                <button className="btn btn-primary" onClick={()=>download(`/api/ticket/${modal.attendee.id}.pdf`)}>Ticket PDF</button>
+                <button className="btn btn-ghost" onClick={()=>{
+                  const a = document.createElement('a')
+                  a.href = modal.attendee.qrDataUrl
+                  a.download = `qr-${modal.attendee.firstName}-${modal.attendee.lastName}.png`
+                  a.click()
+                }}>Scarica PNG</button>
+              </div>
+            </div>
+            <div className="qr-right">
+              <img className="qr-img" src={modal.attendee.qrDataUrl} alt="qr" />
+            </div>
+          </div>
+        </Modal>
+      ) : null}
     </div>
-
   )
+}
 
+function AttendeeForm({ initial, submitLabel, onSubmit }){
+  const [v, setV] = useState({
+    firstName: initial.firstName || '',
+    lastName: initial.lastName || '',
+    document: initial.document || '',
+    email: initial.email || '',
+    phone: initial.phone || '',
+    notes: initial.notes || ''
+  })
+  const [busy, setBusy] = useState(false)
+
+  function set(k,val){ setV(prev=>({ ...prev, [k]: val })) }
+
+  return (
+    <form onSubmit={async (e)=>{
+      e.preventDefault()
+      setBusy(true)
+      try{ await onSubmit(v) } finally{ setBusy(false) }
+    }}>
+      <div className="form-grid">
+        <div>
+          <div className="lbl">Nome *</div>
+          <input value={v.firstName} onChange={e=>set('firstName', e.target.value)} />
+        </div>
+        <div>
+          <div className="lbl">Cognome *</div>
+          <input value={v.lastName} onChange={e=>set('lastName', e.target.value)} />
+        </div>
+        <div>
+          <div className="lbl">Documento</div>
+          <input value={v.document} onChange={e=>set('document', e.target.value)} />
+        </div>
+        <div>
+          <div className="lbl">Email</div>
+          <input value={v.email} onChange={e=>set('email', e.target.value)} />
+        </div>
+        <div>
+          <div className="lbl">Telefono</div>
+          <input value={v.phone} onChange={e=>set('phone', e.target.value)} />
+        </div>
+        <div>
+          <div className="lbl">Note</div>
+          <input value={v.notes} onChange={e=>set('notes', e.target.value)} />
+        </div>
+      </div>
+
+      <div style={{height:12}} />
+      <button className="btn btn-primary" disabled={busy}>{busy ? 'Salvataggio…' : submitLabel}</button>
+    </form>
+  )
 }
