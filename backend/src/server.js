@@ -186,6 +186,14 @@ api.get("/ticket/:id.pdf", (req, res) => {
   }
 });
 
+const doc = buildTicketPdf(attendee, {
+  eventName: "BOLOGNA RUGBY CLUB",
+  eventSubtitle: "Festa fine sessione",
+  eventTime: "22:00 – 04:00",
+  eventPlace: "", // si querés: "Via ... Bologna"
+  watermark: "VALIDO SOLO 1 INGRESSO",
+});
+
 // PDF multipagina (tutti i ticket)
 api.get("/tickets.pdf", (req, res) => {
   try {
