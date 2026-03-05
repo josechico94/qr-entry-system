@@ -235,6 +235,18 @@ export default function App() {
                 </tbody>
               </table>
             </div>
+                  {/* Mobile Bottom Nav */}
+      <div className="bottomNav">
+        <div className={"item " + (tab==="dashboard" ? "active" : "")} onClick={()=>setTab("dashboard")}>
+          <div>🏠</div><div style={{fontSize:12}}>Dashboard</div>
+        </div>
+        <div className={"item " + (tab==="scanner" ? "active" : "")} onClick={()=>setTab("scanner")}>
+          <div>📷</div><div style={{fontSize:12}}>Scanner</div>
+        </div>
+        <div className={"item " + (tab==="import" ? "active" : "")} onClick={()=>setTab("import")}>
+          <div>⬆️</div><div style={{fontSize:12}}>Importa</div>
+        </div>
+      </div>
           </div>
         </>
       )}
